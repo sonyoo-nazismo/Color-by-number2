@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Color By Number - Pixel Art</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0; padding: 0;
+    background: #1e003f; /* roxo escuro */
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    user-select: none;
+  }
+
+  /* Fundo com corações roxos */
+  body::before {
+    content: "❤️";
+    position: fixed;
+    font-size: 20px;
+    color: #80008099;
+    animation: floatHearts 10s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes floatHearts {
+    0% { transform: translateY(100vh) translateX(0); opacity: 0.5;}
+    100% { transform: translateY(-100vh) translateX(200vw); opacity: 0;}
+  }
+
+  header {
+    padding: 15px 10px;
+    font-size: 24px;
+    font-weight: bold;
+    letter-spacing: 1.2px;
+    text-align: center;
+    width: 100%;
+    background: #3a0077;
+    box-shadow: 0 4px 10px rgba(128,0,128,0.6);
+  }
+
+  #controls {
+    margin: 10px 0 15px 0;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  button {
+    background-color: #800080cc;
+    color: #eee;
+    border: none;
+    border-radius: 12px;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 0 3px 8px #4b004b;
+    transition: background-color 0.3s;
+  }
+  button:hover {
+    background-color: #b300b3;
+  }
+
+  #canvas-container {
+    position: relative;
+    width: 512px;
+    height: 512px;
+    max-width: 90vw;
+    max-height: 90vw;
+    border: 2px solid #800080cc;
+    background: #2b004b;
+    box-shadow: 0 0 15px #b300b3;
+    touch-action: none;
+  }
+
+  canvas {
+    image-rendering: pixelated;
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+
+  #palette {
+    margin-top: 15px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    max-width: 90vw;
+  }
+
+  .color-swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    box-shadow: 0 0 4px #800080cc;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    font-weight: bold;
+    font-size: 16px;
+    color: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .color-swatch.selected {
+    border-color: #fff;
+    box-shadow: 0 0 12px #fff;
+  }
+
+  .color-swatch span.number {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    text-shadow: 0 0 4px #000;
+  }
+
+  input[type="file"] {
+    display: none;
+  }
+
+  #info {
+    margin-top: 15px;
+    font-size: 14px;
+    opacity: 0.8;
+    max-width: 90vw;
+    text-align: center;
+  }
+
+  @media (max-width: 600px) {
+    #canvas-container {
+      width: 320px;
+      height: 320px;
+    }
+    .color-swatch {
+      width: 28px;
+      height: 28px;
+      font-size: 12px;
+    }
+  }
+</style>
+</head>
+<body>
+  <header>🎨 Color By Number - Pixel Art</header>
+
+  <div id="controls">
+    <label for="upload-image" style="cursor:pointer;">
+      <button>Adicionar Imagem</button>
+    </label>
+    <input type="file" id="upload-image" accept="image/*" />
+    <button id="reset-btn">Limpar Pintura</button>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="pixel-canvas" width="128" height="128"></canvas>
+  </div>
+
+  <div id="palette"></div>
+
+  <div id="info">
+    Clique nas cores para selecionar, depois pinte os pixels no quadro.<br />
+    Use o botão "Adicionar Imagem" para carregar uma foto e transformar em pixel art.
+  </div>
+
+<script>
+  // Configurações
+  const canvasSize = 128;
+  const maxColors = 32;
+
+  const canvas = document.getElementById('pixel-canvas');
+  const ctx = canvas.getContext('2d');
+
+  let pixelData = new Array(canvasSize * canvasSize).fill(0); // índice da cor em cada pixel
+  let palette = [];
+  let selectedColorIndex = 1; // 0 será transparente / sem pintar
+
+  // Gera a paleta de 32 cores roxas (tons de roxo e cores próximas)
+  function generatePalette() {
+    // Vamos gerar um degrade roxo + cores variadas próximas
+    let colors = [];
+    for (let i = 0; i < maxColors; i++) {
+      // Hue entre 260 e 300, saturação alta, luminosidade variável
+      let h = 280 + (i / maxColors) * 40;
+      let s = 80 + Math.sin(i) * 10;
+      let l = 30 + (i * 2) % 40;
+      colors.push(hslToHex(h, s, l));
+    }
+    return colors;
+  }
+
+  // Função HSL para HEX
+  function hslToHex(h, s, l) {
+    s /= 100;
+    l /= 100;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h/60) % 2 -1));
+    const m = l - c/2;
+    let r=0, g=0, b=0;
+
+    if(h>=0 && h<60) {r=c; g=x; b=0;}
+    else if(h<120) {r=x; g=c; b=0;}
+    else if(h<180) {r=0; g=c; b=x;}
+    else if(h<240) {r=0; g=x; b=c;}
+    else if(h<300) {r=x; g=0; b=c;}
+    else {r=c; g=0; b=x;}
+
+    r = Math.round((r+m)*255);
+    g = Math.round((g+m)*255);
+    b = Math.round((b+m)*255);
+
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  // Cria a paleta na tela
+  function createPaletteUI() {
+    const paletteDiv = document.getElementById('palette');
+    paletteDiv.innerHTML = '';
+    palette.forEach((color, i) => {
+      const swatch = document.createElement('div');
+      swatch.className = 'color-swatch';
+      if(i === selectedColorIndex) swatch.classList.add('selected');
+      swatch.style.backgroundColor = color;
+      swatch.dataset.index = i;
+
+      const numberLabel = document.createElement('span');
+      numberLabel.className = 'number';
+      numberLabel.textContent = i;
+      swatch.appendChild(numberLabel);
+
+      swatch.addEventListener('click', () => {
+        selectedColorIndex = i;
+        updatePaletteSelection();
+      });
+
+      paletteDiv.appendChild(swatch);
+    });
+  }
+
+  // Atualiza visual da seleção da paleta
+  function updatePaletteSelection() {
+    const swatches = document.querySelectorAll('.color-swatch');
+    swatches.forEach(swatch => {
+      swatch.classList.toggle('selected', parseInt(swatch.dataset.index) === selectedColorIndex);
+    });
+  }
+
+  // Desenha o grid colorido com números
+  function drawCanvas() {
+    const pixelSize = canvas.width / canvasSize;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${pixelSize * 0.7}px monospace`;
+    for(let y=0; y<canvasSize; y++) {
+      for(let x=0; x<canvasSize; x++) {
+        const idx = y*canvasSize + x;
+        const colorIndex = pixelData[idx];
+        ctx.fillStyle = palette[colorIndex];
+        ctx.fillRect(x*pixelSize, y*pixelSize, pixelSize, pixelSize);
+
+        // Números só para as cores > 0
+        if(colorIndex > 0) {
+          ctx.fillStyle = '#eee';
+          ctx.fillText(colorIndex, x*pixelSize + pixelSize/2, y*pixelSize + pixelSize/2);
+        }
+      }
+    }
+  }
+
+  // Pinta pixel clicado com cor selecionada
+  function paintPixel(x, y) {
+    if(x < 0 || x >= canvasSize || y < 0 || y >= canvasSize) return;
+    const idx = y*canvasSize + x;
+    pixelData[idx] = selectedColorIndex;
+    drawCanvas();
+  }
+
+  // Evento de clique / toque no canvas
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.floor((e.clientX - rect.left) * scaleX);
+    const y = Math.floor((e.clientY - rect.top) * scaleY);
+    paintPixel(x, y);
+  });
+
+  // Resetar pintura
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    pixelData.fill(0);
+    drawCanvas();
+  });
+
+  // Reduzir imagem e quantizar cores
+  function quantizeImage(imageData, numColors) {
+    // Vamos usar um algoritmo simples K-means para cores? 
+    // Para simplicidade aqui, vou usar uma quantização de cores por redução direta.
+
+    // Para o exemplo, vamos fazer uma quantização básica limitando o RGB
+    // pra formar no máximo numColors tons.
+
+    // Primeiro pegamos os pixels da imagem
+    const data = imageData.data;
+    // Mapear pixels para cores quantizadas em 32 níveis
+    const levels = Math.floor(Math.cbrt(numColors)); // raiz cúbica, pra dividir RGB em níveis
+    const step = 256 / levels;
+
+    function quantizeColor(v) {
+      return Math.floor(v / step) * step + step/2;
+    }
+
+    let quantizedColors = [];
+
+    for(let i=0; i<data.length; i+=4) {
+      const r = quantizeColor(data[i]);
+      const g = quantizeColor(data[i+1]);
+      const b = quantizeColor(data[i+2]);
+      quantizedColors.push([r,g,b]);
+    }
+
+    // Agora criar um array de cores únicas e mapear para índices
+    let uniqueColors = [];
+    let colorIndices = [];
+    quantizedColors.forEach(rgb => {
+      let hex = rgbToHex(rgb[0], rgb[1], rgb[2]);
+      let idx = uniqueColors.indexOf(hex);
+      if(idx === -1) {
+        uniqueColors.push(hex);
+        idx = uniqueColors.length -1;
+      }
+      colorIndices.push(idx);
+    });
+
+    return {uniqueColors, colorIndices};
+  }
+
+  // Função para converter RGB para HEX
+  function rgbToHex(r,g,b) {
+    return "#" + [r,g,b].map(x => {
+      const hex = x.toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    }).join('');
+  }
+
+  // Processar imagem carregada para pixel art 128x128
+  function processImage(file) {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      // Criar um canvas temporário para redimensionar a imagem
+      const tempCanvas = document.createElement('canvas');
+      const tctx = tempCanvas.getContext('2d');
+      tempCanvas.width = canvasSize;
+      tempCanvas.height = canvasSize;
+
+      // Ajustar proporção para caber no canvas 128x128
+      let w = img.width;
+      let h = img.height;
+      let ratio = Math.min(canvasSize/w, canvasSize/h);
+      let nw = Math.round(w*ratio);
+      let nh = Math.round(h*ratio);
+
+      // Centralizar imagem no canvas temporário
+      tctx.fillStyle = "#2b004b";
+      tctx.fillRect(0, 0, canvasSize, canvasSize);
+      tctx.drawImage(img, (canvasSize - nw)/2, (canvasSize - nh)/2, nw, nh);
+
+      // Pegar os dados da imagem
+      const imageData = tctx.getImageData(0, 0, canvasSize, canvasSize);
+
+      // Quantizar cores para no máximo 32 e criar paleta
+      // Aqui usaremos uma quantização simples, para simplificar
+      // Vou substituir pela paleta gerada roxa para manter cores bonitinhas
+      // e só mapear pixels para a cor mais próxima da paleta
+
+      // Para isso, vamos fazer uma função que aproxima o pixel para a cor da paleta
+
+      for(let i=0; i<imageData.data.length; i+=4) {
+        const r = imageData.data[i];
+        const g = imageData.data[i+1];
+        const b = imageData.data[i+2];
+
+        let minDist = 100000;
+        let nearestIndex = 0;
+        for(let c=0; c<palette.length; c++) {
+          const pc = hexToRgb(palette[c]);
+          const dist = colorDistance(r,g,b, pc.r, pc.g, pc.b);
+          if(dist < minDist) {
+            minDist = dist;
+            nearestIndex = c;
+          }
+        }
+
+        // Atualiza pixel para cor da paleta
+        const nearestColor = hexToRgb(palette[nearestIndex]);
+        imageData.data[i] = nearestColor.r;
+        imageData.data[i+1] = nearestColor.g;
+        imageData.data[i+2] = nearestColor.b;
+      }
+
+      // Atualizar pixelData com os índices
+      for(let i=0; i<canvasSize*canvasSize; i++) {
+        const r = imageData.data[i*4];
+        const g = imageData.data[i*4 + 1];
+        const b = imageData.data[i*4 + 2];
+        // Procurar cor na paleta
+        let idx = palette.findIndex(c => {
+          const pc = hexToRgb(c);
+          return pc.r === r && pc.g === g && pc.b === b;
+        });
+        pixelData[i] = idx >= 0 ? idx : 0;
+      }
+
+      drawCanvas();
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      alert("Erro ao carregar a imagem.");
+      URL.revokeObjectURL(url);
+    }
+    img.src = url;
+  }
+
+  // Calcula distância euclidiana entre duas cores RGB
+  function colorDistance(r1,g1,b1, r2,g2,b2) {
+    return Math.sqrt((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2);
+  }
+
+  // Converte HEX para RGB
+  function hexToRgb(hex) {
+    hex = hex.replace(/^#/, '');
+    if(hex.length === 3) {
+      hex = hex.split('').map(x => x+x).join('');
+    }
+    const bigint = parseInt(hex,16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return {r,g,b};
+  }
+
+  // Inicializa o app
+  function init() {
+    palette = generatePalette();
+    createPaletteUI();
+    pixelData.fill(0);
+    drawCanvas();
+  }
+
+  // Eventos para upload de imagem
+  document.getElementById('upload-image').addEventListener('change', (e) => {
+    if(e.target.files.length > 0) {
+      processImage(e.target.files[0]);
+    }
+    e.target.value = null; // Resetar input
+  });
+
+  init();
+</script>
+</body>
+</html>
